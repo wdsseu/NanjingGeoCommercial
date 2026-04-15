@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8">
+    <title>城市地块POI演化分析终端</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg-main: #f8fafc;
+            --panel-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-sub: #64748b;
+            --border: #e2e8f0;
+            --accent: #f59e0b;
+            --road-highlight: #f59e0b;
+            --subway-color: #059669;
+            --highlight-stroke: #00f2fe;
+        }
+
+        body {
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            font-family: 'PingFang SC', sans-serif;
+            background: var(--bg-main);
+            overflow: hidden;
+        }
+
+        #map {
+            flex: 1;
+            z-index: 1;
+        }
+
+        #sidebar {
+            width: 480px;
+            background: var(--panel-bg);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            box-shadow: -4px 0 24px rgba(0, 0, 0, 0.06);
+            overflow-y: auto;
+        }
+
+        .padding-wrap {
+            padding: 32px;
+        }
+
+        #map-legend {
+            position: absolute;
+            bottom: 30px;
+            left: 20px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(8px);
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            display: none;
+            transition: transform 0.3s ease;
+        }
+
+        .legend-active {
+            transform: scale(1.05);
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+        }
+
+        .legend-title {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: var(--text-main);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 5px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 12px;
+            color: var(--text-sub);
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .header-box {
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 20px;
+        }
+
+        .id-badge {
+            background: #eff6ff;
+            color: var(--primary);
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            display: inline-block;
+        }
+
+        h2 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--text-main);
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 24px 0 16px;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-main);
+            border-left: 4px solid var(--primary);
+            padding-left: 10px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+        }
+
+        .info-card {
+            background: #ffffff;
+            border: 1px solid var(--border);
+            padding: 14px;
+            border-radius: 10px;
+        }
+
+        .info-card.full {
+            grid-column: span 2;
+            background: #fdfaf6;
+            border-color: #fde68a;
+        }
+
+        .info-label {
+            font-size: 11px;
+            color: var(--text-sub);
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .info-value {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .unit {
+            font-size: 11px;
+            font-weight: 400;
+            color: var(--text-sub);
+            margin-left: 3px;
+        }
+
+        .chart-container {
+            width: 100%;
+            height: 350px;
+            margin-bottom: 20px;
+        }
+
+        #year-bar {
+            position: absolute;
+            bottom: 32px;
+            left: 40%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(12px);
+            padding: 5px;
+            border-radius: 50px;
+            display: flex;
+            border: 1px solid var(--border);
+        }
+
+        .year-btn {
+            border: none;
+            background: transparent;
+            padding: 10px 18px;
+            border-radius: 40px;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-sub);
+            cursor: pointer;
+        }
+
+        .year-btn.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .flowing-line {
+            stroke-dasharray: 6, 10;
+            stroke-dashoffset: 1000;
+            animation: flow 15s linear infinite;
+            stroke: #ccff00;
+            stroke-opacity: 0.9;
+            filter: drop-shadow(0 0 2px rgba(204, 255, 0, 0.8));
+        }
+
+        @keyframes dashOffset {
+            to {
+                stroke-dashoffset: -20;
+            }
+        }
+
+        @keyframes flow {
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+
+        .road-highlight-line-outer {
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke: #1a1a1a;
+            stroke-opacity: 0.8;
+        }
+
+        .road-highlight-line-inner {
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke: #ffffff;
+            stroke-opacity: 1;
+        }
+
+        .subway-flow {
+            stroke-dasharray: 15, 30;
+            animation: subwayDash 15s linear infinite;
+            filter: drop-shadow(0 0 6px rgba(5, 150, 105, 0.8));
+        }
+
+        @keyframes subwayDash {
+            from {
+                stroke-dashoffset: 1000;
+            }
+
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+
+        .leaflet-interactive {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .selected-dikuai {
+            filter: drop-shadow(0 0 5px rgba(0, 0, 0, 0.5));
+        }
+
+        .station-to-plot-line {
+            filter: drop-shadow(0 0 3px rgba(249, 115, 22, 0.6));
+            stroke-width: 3;
+            stroke-dasharray: 10, 10;
+            animation: dashOffset 1s linear infinite;
+        }
+
+        @keyframes stationFlow {
+            from {
+                stroke-dashoffset: 20;
+            }
+
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+    <div id="map-legend">
+        <div class="legend-title">主导功能分类</div>
+        <div id="legend-list"></div>
+        <div class="legend-item" style="margin-top:8px; border-top:1px solid #eee; padding-top:8px;">
+            <div class="legend-color" style="background: #cbd5e1;"></div><span>无POI覆盖</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: var(--road-highlight); height: 3px; width: 15px; border-radius: 2px;"></div><span>关联道路</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: var(--subway-color); border-radius: 2px; width:12px; height:12px;"></div><span>地铁站点</span>
+        </div>
+    </div>
+    <div id="year-bar"></div>
+    <div id="sidebar">
+        <div class="padding-wrap">
+            <div class="header-box">
+                <div class="id-badge">地块索引编号</div>
+                <h2 id="display-id">请在地图上选择地块</h2>
+            </div>
+            <div class="section-header">地块元数据</div>
+            <div class="info-grid">
+                <div class="info-card">
+                    <div class="info-label">规划性质</div>
+                    <div class="info-value" id="info-type">-</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-label">地块全称</div>
+                    <div class="info-value" id="info-full-id" style="font-size: 12px;">-</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-label">规划面积</div>
+                    <div class="info-value" id="info-area">0<span class="unit">㎡</span></div>
+                </div>
+                <div class="info-card">
+                    <div class="info-label">估算建筑层数</div>
+                    <div class="info-value" id="info-floors">0<span class="unit">F</span></div>
+                </div>
+                <div class="info-card full">
+                    <div class="info-label" style="color: var(--accent);">主要入驻机构</div>
+                    <div class="info-value" id="info-poi-names" style="font-size: 14px; color: #92400e;">-</div>
+                </div>
+            </div>
+            <div class="section-header">物理指标 (Physics)</div>
+            <div class="info-grid">
+                <div class="info-card">
+                    <div class="info-label">容积率 (FAR)</div>
+                    <div class="info-value" id="info-far" style="color:var(--primary)">0.00</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-label">平均建筑高度</div>
+                    <div class="info-value" id="info-height">0.0<span class="unit">m</span></div>
+                </div>
+            </div>
+            <div class="section-header">功能占比生长图</div>
+            <div id="chart-poi" class="chart-container"></div>
+        </div>
+    </div>
+
+    <script>
+        const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f472b6', '#14b8a6', '#f97316', '#6366f1', '#a855f7', '#0ea5e9', '#ec4899', '#94a3b8'];
+        let rawData, currentYear, selectedNode, selectedSubwayStation;
+
+        const map = L.map('map', { zoomControl: false }).setView([32.057, 118.753], 15);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map);
+
+        const roadLayer = L.layerGroup().addTo(map);
+        const linkLayer = L.layerGroup().addTo(map);
+        const markers = L.layerGroup().addTo(map);
+        const subwayStationLayer = L.layerGroup().addTo(map);
+        const subwayLineLayer = L.layerGroup().addTo(map);
+        const poiChart = echarts.init(document.getElementById('chart-poi'));
+
+        fetch('data.json').then(res => res.json()).then(data => {
+            rawData = data;
+            const legendList = document.getElementById('legend-list');
+            data.labels.forEach((label, i) => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                item.innerHTML = `<div class="legend-color" style="background: ${colors[i % colors.length]}"></div><span>${label}</span>`;
+                legendList.appendChild(item);
+            });
+            document.getElementById('map-legend').style.display = 'block';
+
+            let years = ["2022", "2023", "2024"];
+            currentYear = "2022";
+
+            const bar = document.getElementById('year-bar');
+            years.forEach(y => {
+                const btn = document.createElement('button');
+                btn.className = 'year-btn' + (y === currentYear ? ' active' : '');
+                btn.innerText = y === "2025" ? "2025预" : y;
+                btn.onclick = () => {
+                    currentYear = y;
+                    document.querySelectorAll('.year-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    resetVisuals();
+                    renderMarkers();
+                    renderSubwayStations();
+                    if (selectedNode) { updatePanel(); renderLinks(selectedNode.id); renderRoads(selectedNode.id); }
+                };
+                bar.appendChild(btn);
+            });
+            renderMarkers();
+            renderSubwayStations();
+        });
+
+        function renderMarkers() {
+            markers.clearLayers();
+            rawData.nodes.forEach(node => {
+                // 获取颜色
+                const probs = node.time_series[currentYear];
+                let baseColor = '#cbd5e1';
+                let hasData = false;
+                if (probs && probs.length > 0) {
+                    const maxVal = Math.max(...probs);
+                    if (maxVal > 0) {
+                        baseColor = colors[probs.indexOf(maxVal) % colors.length];
+                        hasData = true;
+                    }
+                }
+
+                const isSelected = selectedNode && String(selectedNode.id) === String(node.id);
+
+                // 渲染地块轮廓
+                if (node.path && node.path.length > 0) {
+                    const correctedPath = node.path.map(p => [p[1], p[0]]);
+
+                    const polygon = L.polygon(correctedPath, {
+                        id: String(node.id),
+                        fillColor: baseColor,
+                        fillOpacity: isSelected ? 0.9 : (hasData ? 0.7 : 0.3),
+                        color: isSelected ? '#333' : '#fff',
+                        weight: isSelected ? 3 : 1,
+                        dashArray: isSelected ? '' : '2',
+                        lineJoin: 'round'
+                    }).on('click', (e) => {
+                        L.DomEvent.stopPropagation(e);
+                        selectedNode = node;
+                        selectedSubwayStation = null;
+
+                        resetVisuals();
+                        updatePanel();
+                        renderLinks(node.id);
+                        renderRoads(node.id);
+
+                        // 点击地块后，寻找并让关联的地铁站高亮
+                        findAndHighlightStation(node.id);
+
+                        document.getElementById('map-legend').classList.add('legend-active');
+                        map.fitBounds(e.target.getBounds(), { padding: [50, 50], maxZoom: 17 });
+                    }).addTo(markers);
+
+                    // 悬停交互
+                    polygon.on('mouseover', function () {
+                        this.setStyle({ fillOpacity: 1, weight: 2 });
+                    }).on('mouseout', function () {
+                        if (!isSelected) {
+                            this.setStyle({ fillOpacity: hasData ? 0.7 : 0.3, weight: 1 });
+                        }
+                    });
+                }
+            });
+        }
+
+        function renderSubwayStations() {
+            if (!subwayStationLayer) return;
+            subwayStationLayer.clearLayers();
+
+            const stationsData = rawData.subway.stations;
+            if (!stationsData) return;
+
+            Object.keys(stationsData).forEach(stationId => {
+                const station = stationsData[stationId];
+                if (!station || !station.coords) return;
+
+                const isSelected = (selectedSubwayStation === stationId);
+                const marker = L.circleMarker([station.coords[1], station.coords[0]], {
+                    stationId: stationId,
+                    lines: station.lines, // 存入所属线路 ID 数组
+                    radius: isSelected ? 10 : 6,
+                    fillColor: '#ffffff',
+                    color: isSelected ? '#000000' : '#059669',
+                    weight: isSelected ? 3 : 2,
+                    fillOpacity: 1,
+                    pane: 'markerPane'
+                });
+
+                marker.bindTooltip(`<b>${station.name}</b><br/>线路: ${station.lines.join(', ')}`);
+
+                marker.on('click', (e) => {
+                    L.DomEvent.stopPropagation(e);
+                    selectedSubwayStation = stationId;
+                    selectedNode = null;
+                    resetVisuals();
+
+                    // 点击时传入该站点的 lines 数组
+                    renderSubwayLines(station.lines);
+                    renderStationToPlotLinks(stationId);
+                    document.getElementById('map-legend').classList.add('legend-active');
+                });
+                marker.addTo(subwayStationLayer);
+            });
+        }
+
+        function renderSubwayLines(lineIds) {
+            subwayLineLayer.clearLayers();
+            if (!lineIds || lineIds.length === 0) return;
+
+            lineIds.forEach(lId => {
+                const line = rawData.subway.lines[lId]; // 从数据源中获取完整线路几何
+                if (line && line.coords) {
+                    // 支持多段线或单段线
+                    const flippedCoords = line.coords.map(c => [c[1], c[0]]);
+
+                    L.polyline(flippedCoords, {
+                        color: '#059669',
+                        weight: 6,
+                        opacity: 0.9,
+                        lineJoin: 'round',
+                        className: 'subway-flow'
+                    }).addTo(subwayLineLayer)
+                        .bindTooltip(`地铁线路: ${lId}`);
+                }
+            });
+        }
+
+        function highlightLinkedElements(targetId, type) {
+            // 遍历地块图层
+            markers.eachLayer(layer => {
+                if (layer.options && layer.options.plotId === String(targetId)) {
+                    if (typeof layer.setStyle === 'function') {
+                        layer.setStyle({
+                            color: '#ff0000', // 高亮红色
+                            weight: 4,
+                            fillOpacity: 0.9
+                        });
+                        if (layer.bringToFront) layer.bringToFront();
+                    }
+                }
+            });
+
+            // 遍历地铁站图层
+            subwayStationLayer.eachLayer(layer => {
+                if (layer.options && layer.options.stationId === String(targetId)) {
+                    if (typeof layer.setRadius === 'function') {
+                        layer.setRadius(12);
+                        layer.setStyle({ color: '#ff0000', weight: 3 });
+                    }
+                }
+            });
+        }
+
+        function resetVisuals() {
+            renderMarkers();
+            renderSubwayStations();
+            subwayLineLayer.clearLayers();
+            document.getElementById('map-legend').classList.remove('legend-active');
+        }
+
+        function renderRoads(plotId) {
+            roadLayer.clearLayers();
+            const yearRels = rawData.roads.relations[currentYear];
+            if (!yearRels || !yearRels[plotId]) return;
+            const roadIds = yearRels[plotId];
+            const geoData = rawData.roads.geo;
+            roadIds.forEach(id => {
+                const road = geoData[id];
+                if (road && road.coords) {
+                    L.polyline(road.coords, {
+                        weight: 8,
+                        className: 'road-highlight-line-outer'
+                    }).addTo(roadLayer);
+
+                    L.polyline(road.coords, {
+                        weight: 2,
+                        className: 'road-highlight-line-inner'
+                    }).addTo(roadLayer)
+                        .bindTooltip(`<b>${road.name}</b>`, { sticky: true });
+                }
+            });
+        }
+
+        function renderLinks(targetId) {
+            linkLayer.clearLayers();
+            if (!rawData.links) return;
+            rawData.links.filter(l => String(l.source) === String(targetId) || String(l.target) === String(targetId)).forEach(link => {
+                const s = rawData.nodes.find(n => String(n.id) === String(link.source));
+                const t = rawData.nodes.find(n => String(n.id) === String(link.target));
+                if (s && t) {
+                    L.polyline([[s.lat, s.lng], [t.lat, t.lng]], {
+                        weight: 4,
+                        className: 'flowing-line'
+                    }).addTo(linkLayer);
+                }
+            });
+        }
+
+        // 点击地铁站时，显示其服务的所有地块
+        function renderStationToPlotLinks(stationId) {
+            linkLayer.clearLayers();
+            const yearRels = (rawData.subway && rawData.subway.plot_links) ? rawData.subway.plot_links[currentYear] : null;
+            if (!yearRels || !yearRels[stationId]) {
+                console.log("该年份此车站无关联地块数据");
+                return;
+            }
+
+            const station = rawData.subway.stations[stationId];
+            const linkedPlotIds = yearRels[stationId].map(id => String(id));
+
+            console.log(` 车站 ${stationId} 关联了 ${linkedPlotIds.length} 个地块`);
+
+            markers.eachLayer(layer => {
+                if (linkedPlotIds.includes(String(layer.options.id))) {
+                    layer.setStyle({
+                        fillColor: '#f97316',
+                        color: '#ffffff',
+                        weight: 3,
+                        fillOpacity: 0.9
+                    });
+
+                    const nodePos = layer.getBounds().getCenter();
+                    L.polyline([
+                        [station.coords[1], station.coords[0]],
+                        [nodePos.lat, nodePos.lng]
+                    ], {
+                        className: 'station-to-plot-line',
+                        color: '#f97316'
+                    }).addTo(linkLayer);
+
+                    animatePulse(layer, 2);
+                }
+            });
+        }
+
+        // 辅助函数：临时高亮被关联的地块
+        function highlightSinglePlot(plotId) {
+            markers.eachLayer(layer => {
+                if (layer.options && layer.options.id === String(plotId)) {
+                    layer.setStyle({ weight: 3, color: '#ffffff', fillOpacity: 0.9 });
+                }
+            });
+        }
+
+        function animatePulse(layer, times = 3) {
+            let count = 0;
+            const originalRadius = layer.options.radius || 6;
+            const originalWeight = layer.options.weight || 1;
+
+            const interval = setInterval(() => {
+                if (count % 2 === 0) {
+                    // 放大
+                    if (layer.setRadius) layer.setRadius(originalRadius * 2);
+                    layer.setStyle({ weight: originalWeight + 4, fillOpacity: 1 });
+                } else {
+                    // 恢复
+                    if (layer.setRadius) layer.setRadius(originalRadius);
+                    layer.setStyle({ weight: originalWeight, fillOpacity: 0.7 });
+                }
+                count++;
+                if (count >= times * 2) {
+                    clearInterval(interval);
+                    if (layer.setRadius) layer.setRadius(originalRadius * 1.5);
+                    layer.setStyle({ color: '#ff4757', weight: 3, fillOpacity: 0.9 });
+                }
+            }, 250);
+        }
+
+        function findAndHighlightStation(plotId) {
+            const yearRels = (rawData.subway && rawData.subway.plot_links) ? rawData.subway.plot_links[currentYear] : null;
+            if (!yearRels) return;
+
+            let foundStations = [];
+            Object.keys(yearRels).forEach(sId => {
+                if (yearRels[sId].map(id => String(id)).includes(String(plotId))) {
+                    foundStations.push(sId);
+                }
+            });
+
+            subwayStationLayer.eachLayer(layer => {
+                if (foundStations.includes(String(layer.options.stationId))) {
+                    const station = rawData.subway.stations[layer.options.stationId];
+
+                    if (selectedNode) {
+                        L.polyline([
+                            [station.coords[1], station.coords[0]],
+                            [selectedNode.lat, selectedNode.lng]
+                        ], {
+                            className: 'station-to-plot-line',
+                            color: '#2563eb',
+                            dashArray: '5, 10'
+                        }).addTo(linkLayer);
+                    }
+
+                    animatePulse(layer, 4);
+                    layer.bindTooltip("关联车站: " + station.name).openTooltip();
+                }
+            });
+        }
+
+        function updatePanel() {
+            const n = selectedNode; if (!n) return;
+            const y = currentYear;
+            const fullName = n.static_props.地块全称 || "";
+            const realID = fullName.split('_').pop() || "未知";
+
+            document.getElementById('display-id').innerText = "地块 #DK_" + realID;
+
+            document.getElementById('info-type').innerText = n.static_props.用地性质 || "-";
+            document.getElementById('info-full-id').innerText = fullName;
+            document.getElementById('info-area').innerHTML = `${n.static_props.规划面积 || 0} <span class="unit">㎡</span>`;
+
+            const poiData = n.temporal_physic.poi_names ? n.temporal_physic.poi_names[y] : null;
+            document.getElementById('info-poi-names').innerText = (poiData && poiData !== "暂无机构记录") ? poiData : "该年度暂无入驻记录";
+
+            const far = (n.temporal_physic.far && n.temporal_physic.far[y]) ? n.temporal_physic.far[y] : 0;
+            document.getElementById('info-far').innerText = Number(far).toFixed(2);
+
+            const height = n.temporal_physic.height[y] || 0;
+            document.getElementById('info-height').innerHTML = `${height} <span class="unit">m</span>`;
+            document.getElementById('info-floors').innerHTML = `${Math.ceil(height / 3)} <span class="unit">F</span>`;
+            let probs = n.time_series[y] || [];
+            let poiList = rawData.labels.map((name, i) => ({ name, value: probs[i] || 0, color: colors[i % colors.length] }))
+                .filter(v => v.value > 0).sort((a, b) => a.value - b.value);
+            poiChart.setOption({
+                tooltip: { trigger: 'axis', formatter: (ps) => `${ps[0].name}: ${(ps[0].value * 100).toFixed(1)}%` },
+                grid: { left: '20%', right: '12%', bottom: '5%', top: '5%' },
+                xAxis: { type: 'value', max: 1, splitLine: { show: false }, axisLabel: { show: false } },
+                yAxis: { type: 'category', data: poiList.map(v => v.name), axisLabel: { fontSize: 10 } },
+                series: [{ type: 'bar', data: poiList.map(v => ({ value: v.value, itemStyle: { color: v.color } })), label: { show: true, position: 'right', formatter: (p) => (p.value * 100).toFixed(1) + '%' }, animationDuration: 800 }]
+            }, true);
+        }
+
+        map.on('click', (e) => {
+            if (e.originalEvent.target.id === 'map') {
+                selectedNode = null; selectedSubwayStation = null;
+                linkLayer.clearLayers(); roadLayer.clearLayers(); resetVisuals();
+            }
+        });
+        window.onresize = () => { poiChart.resize(); };
+    </script>
+</body>
+
+</html>
